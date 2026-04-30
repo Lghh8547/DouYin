@@ -217,7 +217,7 @@ def scroll_and_select_user(page, username, targets):
 def scroll_and_select_group(page, username, group_targets):
     """尝试滚动并查找群聊名称"""
     # 群聊列表选择器（与私聊在同一消息页面，通过标签切换）
-    group_tab_selector = 'xpath=//div[contains(@class, "tab-") and (contains(text(), "群消息") or contains(text(), "群聊"))]'
+    group_tab_selector = 'xpath=//div[@role="tab" and (contains(text(), "群消息") or contains(text(), "群聊"))]'
     group_item_selector = 'xpath=//div[contains(@class, "semi-list-item-body") and contains(@class, "semi-list-item-body-flex-start")]'
     scrollable_group_selector = 'xpath=//ul[contains(@class, "semi-list-wrapper")]'
     no_more_selector = 'xpath=//div[contains(@class, "no-more-tip-")]'
