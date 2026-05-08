@@ -231,10 +231,14 @@ def scroll_and_select_group(page, username, group_targets):
     page.wait_for_selector(group_tab_selector)
     page.locator(group_tab_selector).click()
 
-    # 等待群聊列表第一项加载
+    # 等待群聊列表第一项加载（延长超时时间，并接受非可见状态）
     first_group_selector = 'xpath=//li[contains(@class, "semi-list-item")]//div[contains(@class, "semi-list-item-body")]'
-    page.wait_for_selector(first_group_selector)
-    page.locator(first_group_selector).first.click()
+    first_group_locator = page.locator(first_group_selector).first
+    # 先等待元素存在于 DOM（不论是否可见），超时 5 分钟
+    first_group_locator.wait_for(state="attached", timeout=300000)
+    # 再等待元素变为可见
+    first_group_locator.wait_for(state="visible", timeout=300000)
+    first_group_locator.click()
 
     time.sleep(config["friendListTimeout"] / 1000)
 
