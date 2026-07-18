@@ -228,8 +228,9 @@ def scroll_and_select_group(page, username, group_targets):
 
     # 点击群聊标签页
     logger.debug(f"账号 {username} 点击进入群聊标签页")
-    page.wait_for_selector(group_tab_selector)
-    page.locator(group_tab_selector).click()
+    group_tab_locator = page.locator(group_tab_selector)
+    group_tab_locator.wait_for(state="attached", timeout=300000)
+    group_tab_locator.click(force=True)
 
     # 等待群聊列表第一项加载（延长超时时间，并接受非可见状态）
     first_group_selector = 'xpath=//li[contains(@class, "semi-list-item")]//div[contains(@class, "semi-list-item-body")]'
