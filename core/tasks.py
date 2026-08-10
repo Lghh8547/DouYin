@@ -3,7 +3,7 @@ from utils.logger import setup_logger
 from utils.config import get_config, get_userData
 from core.msg_builder import build_message, build_message_with_openai
 from core.browser import get_browser
-from playwright.sync_api import Response
+from playwright.sync_api import Response, TimeoutError as PlaywrightTimeoutError
 import time
 import json
 
@@ -217,7 +217,7 @@ def scroll_and_select_user(page, username, targets):
 def scroll_and_select_group(page, username, group_targets):
     """尝试滚动并查找群聊名称"""
     # 群聊列表选择器（与私聊在同一消息页面，通过标签切换）
-    group_tab_selector = 'xpath=//span[text()="群消息"]'
+    group_tab_selector = 'xpath=//*[@role="tab" and normalize-space()="群消息"]'
     group_item_selector = 'xpath=//div[contains(@class, "semi-list-item-body") and contains(@class, "semi-list-item-body-flex-start")]'
     scrollable_group_selector = 'xpath=//ul[contains(@class, "semi-list-wrapper")]'
     no_more_selector = 'xpath=//div[contains(@class, "no-more-tip-")]'
@@ -228,16 +228,27 @@ def scroll_and_select_group(page, username, group_targets):
 
     # 点击群聊标签页
     logger.debug(f"账号 {username} 点击进入群聊标签页")
-    # 使用 Playwright 文本选择器，更宽松的匹配
-    page.locator('text=群消息').click(timeout=300000)
+    try:
+        page.get_by_role("tab", name="群消息").click(timeout=config["browserTimeout"])
+    except PlaywrightTimeoutError:
+        logger.debug(f"账号 {username} 未通过 role=tab 找到群消息入口，尝试使用 XPath")
+        try:
+            page.locator(group_tab_selector).first.click(timeout=config["browserTimeout"])
+        except PlaywrightTimeoutError as e:
+            logger.error(f"账号 {username} 未找到群消息入口，无法处理群聊任务: {group_targets}")
+            raise e
 
     # 等待群聊列表第一项加载（延长超时时间，并接受非可见状态）
     first_group_selector = 'xpath=//li[contains(@class, "semi-list-item")]//div[contains(@class, "semi-list-item-body")]'
     first_group_locator = page.locator(first_group_selector).first
-    # 等待元素存在于 DOM（不论是否可见），超时 5 分钟
-    first_group_locator.wait_for(state="attached", timeout=300000)
-    # 使用强制点击绕过可见性检查（元素可能被 CSS 隐藏但仍可交互）
-    first_group_locator.click(force=True)
+    try:
+        # 等待元素存在于 DOM（不论是否可见）
+        first_group_locator.wait_for(state="attached", timeout=config["browserTimeout"])
+        # 使用强制点击绕过可见性检查（元素可能被 CSS 隐藏但仍可交互）
+        first_group_locator.click(force=True)
+    except PlaywrightTimeoutError:
+        logger.error(f"账号 {username} 群聊列表加载超时，无法处理群聊任务: {group_targets}")
+        raise
 
     time.sleep(config["friendListTimeout"] / 1000)
 
