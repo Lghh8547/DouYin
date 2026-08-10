@@ -1,9 +1,10 @@
 import traceback
+import os
 from utils.logger import setup_logger
 from utils.config import get_config, get_userData
 from core.msg_builder import build_message, build_message_with_openai
 from core.browser import get_browser
-from playwright.sync_api import Response
+from playwright.sync_api import Response, TimeoutError as PlaywrightTimeoutError
 import time
 import json
 
@@ -15,6 +16,37 @@ userData = get_userData()
 logger = setup_logger(level=config.get("logLevel", "Info"))
 matchMode = config.get("matchMode", "nickname")
 userIDDict = {}
+
+
+def save_page_debug_artifacts(page, username, reason):
+    """保存 CI 现场，便于从 Actions artifact 判断真实页面状态。"""
+    safe_username = "".join(ch if ch.isalnum() else "_" for ch in str(username))[:40]
+    safe_reason = "".join(ch if ch.isalnum() else "_" for ch in str(reason))[:40]
+    prefix = f"{safe_username}_{safe_reason}_{int(time.time())}"
+    os.makedirs("logs", exist_ok=True)
+
+    try:
+        logger.error(f"调试信息 - 当前 URL: {page.url}")
+        logger.error(f"调试信息 - 页面标题: {page.title()}")
+        tab_texts = page.locator('[role="tab"], .semi-tabs-tab').all_inner_texts()
+        logger.error(f"调试信息 - 当前可见 tab: {tab_texts}")
+    except Exception as e:
+        logger.error(f"调试信息采集失败: {e}")
+
+    try:
+        screenshot_path = os.path.join("logs", f"{prefix}.png")
+        page.screenshot(path=screenshot_path, full_page=True)
+        logger.error(f"调试截图已保存: {screenshot_path}")
+    except Exception as e:
+        logger.error(f"调试截图保存失败: {e}")
+
+    try:
+        html_path = os.path.join("logs", f"{prefix}.html")
+        with open(html_path, "w", encoding="utf-8") as file:
+            file.write(page.content())
+        logger.error(f"调试 HTML 已保存: {html_path}")
+    except Exception as e:
+        logger.error(f"调试 HTML 保存失败: {e}")
 
 def handle_response(response: Response):
     """
@@ -217,7 +249,12 @@ def scroll_and_select_user(page, username, targets):
 def scroll_and_select_group(page, username, group_targets):
     """尝试滚动并查找群聊名称"""
     # 群聊列表选择器（与私聊在同一消息页面，通过标签切换）
-    group_tab_selector = 'xpath=//span[text()="群消息"]'
+    group_tab_selectors = [
+        ("role=tab", lambda: page.get_by_role("tab", name="群消息")),
+        ("semi-tabs-tab", lambda: page.locator("#sub-app .semi-tabs-tab").filter(has_text="群消息").first),
+        ("xpath role tab", lambda: page.locator('xpath=//*[@role="tab" and contains(normalize-space(), "群消息")]').first),
+        ("exact text", lambda: page.get_by_text("群消息", exact=True).first),
+    ]
     group_item_selector = 'xpath=//div[contains(@class, "semi-list-item-body") and contains(@class, "semi-list-item-body-flex-start")]'
     scrollable_group_selector = 'xpath=//ul[contains(@class, "semi-list-wrapper")]'
     no_more_selector = 'xpath=//div[contains(@class, "no-more-tip-")]'
@@ -228,16 +265,45 @@ def scroll_and_select_group(page, username, group_targets):
 
     # 点击群聊标签页
     logger.debug(f"账号 {username} 点击进入群聊标签页")
-    # 使用 Playwright 文本选择器，更宽松的匹配
-    page.locator('text=群消息').click(timeout=300000)
+    try:
+        page.locator("#sub-app, [role='tab'], .semi-tabs-tab").first.wait_for(
+            state="attached",
+            timeout=config["browserTimeout"],
+        )
+    except PlaywrightTimeoutError:
+        logger.error(f"账号 {username} 消息页主体加载超时，无法处理群聊任务: {group_targets}")
+        save_page_debug_artifacts(page, username, "missing_chat_page")
+        raise
+
+    group_tab_clicked = False
+    last_error = None
+    for selector_name, get_locator in group_tab_selectors:
+        try:
+            get_locator().click(timeout=15000)
+            logger.debug(f"账号 {username} 已通过 {selector_name} 进入群消息")
+            group_tab_clicked = True
+            break
+        except PlaywrightTimeoutError as e:
+            last_error = e
+            logger.debug(f"账号 {username} 未通过 {selector_name} 找到群消息入口，尝试下一个选择器")
+
+    if not group_tab_clicked:
+        logger.error(f"账号 {username} 未找到群消息入口，无法处理群聊任务: {group_targets}")
+        save_page_debug_artifacts(page, username, "missing_group_tab")
+        raise last_error
 
     # 等待群聊列表第一项加载（延长超时时间，并接受非可见状态）
     first_group_selector = 'xpath=//li[contains(@class, "semi-list-item")]//div[contains(@class, "semi-list-item-body")]'
     first_group_locator = page.locator(first_group_selector).first
-    # 等待元素存在于 DOM（不论是否可见），超时 5 分钟
-    first_group_locator.wait_for(state="attached", timeout=300000)
-    # 使用强制点击绕过可见性检查（元素可能被 CSS 隐藏但仍可交互）
-    first_group_locator.click(force=True)
+    try:
+        # 等待元素存在于 DOM（不论是否可见）
+        first_group_locator.wait_for(state="attached", timeout=config["browserTimeout"])
+        # 使用强制点击绕过可见性检查（元素可能被 CSS 隐藏但仍可交互）
+        first_group_locator.click(force=True)
+    except PlaywrightTimeoutError:
+        logger.error(f"账号 {username} 群聊列表加载超时，无法处理群聊任务: {group_targets}")
+        save_page_debug_artifacts(page, username, "missing_group_list")
+        raise
 
     time.sleep(config["friendListTimeout"] / 1000)
 
@@ -337,7 +403,11 @@ def send_message_to_chat(page, username, target_name, is_group=False):
 
 
 def do_user_task(browser, username, cookies, targets, group_targets=None):
-        context = browser.new_context()  # 每个任务使用独立的上下文
+        context = browser.new_context(  # 每个任务使用独立的上下文
+            viewport={"width": 1920, "height": 1080},
+            locale="zh-CN",
+            timezone_id="Asia/Shanghai",
+        )
         context.set_default_navigation_timeout(config["browserTimeout"])  # 设置导航超时时间为 120 秒
         context.set_default_timeout(config["browserTimeout"])  # 设置所有操作的默认超时时间为 120 秒
 
