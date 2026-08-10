@@ -407,6 +407,12 @@ def do_user_task(browser, username, cookies, targets, group_targets=None):
             viewport={"width": 1920, "height": 1080},
             locale="zh-CN",
             timezone_id="Asia/Shanghai",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/145.0.0.0 Safari/537.36"
+            ),
+            extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9"},
         )
         context.set_default_navigation_timeout(config["browserTimeout"])  # 设置导航超时时间为 120 秒
         context.set_default_timeout(config["browserTimeout"])  # 设置所有操作的默认超时时间为 120 秒

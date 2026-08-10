@@ -22,14 +22,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Ensure browsers are installed
-      run: playwright install chromium --with-deps --only-shell
+      run: playwright install chromium --with-deps
     - name: Export Github Environment Variables and Secrets to JSON
       env:
         VARS_JSON: ${{ toJson(vars) }}
         SECRETS_JSON: ${{ toJson(secrets) }}
       run: python utils/export_github_env.py
     - name: Run DouYin Spark Flow
-      run: python main.py
+      env:
+        HEADLESS: "false"
+      run: xvfb-run -a python main.py
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:

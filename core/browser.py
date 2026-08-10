@@ -24,13 +24,16 @@ def get_browser():
     """
 
     headless = True
+    headless_env = os.getenv("HEADLESS")
+    if headless_env is not None:
+        headless = headless_env.lower() not in ("0", "false", "no")
 
     env = get_environment()
     if env == Environment.LOCAL:
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.abspath(
             os.path.join(os.path.dirname(__file__), PLAYWRIGHT_BROWSERS_PATH)
         )
-        if DEBUG:
+        if DEBUG and headless_env is None:
             headless = False
     elif env == Environment.PACKED:
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.abspath(
@@ -40,7 +43,14 @@ def get_browser():
     try:
         # 启动浏览器
         playwright = sync_playwright().start() 
-        browser = playwright.chromium.launch(headless=headless)
+        browser = playwright.chromium.launch(
+            headless=headless,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--no-sandbox",
+            ],
+        )
         return playwright, browser
     except Exception as e:
         # 捕获浏览器启动错误
