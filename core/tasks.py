@@ -249,12 +249,16 @@ def scroll_and_select_user(page, username, targets):
 def scroll_and_select_group(page, username, group_targets):
     """尝试滚动并查找群聊名称"""
     # 群聊列表选择器（与私聊在同一消息页面，通过标签切换）
+<<<<<<< HEAD
     group_tab_selectors = [
         ("role=tab", lambda: page.get_by_role("tab", name="群消息")),
         ("semi-tabs-tab", lambda: page.locator("#sub-app .semi-tabs-tab").filter(has_text="群消息").first),
         ("xpath role tab", lambda: page.locator('xpath=//*[@role="tab" and contains(normalize-space(), "群消息")]').first),
         ("exact text", lambda: page.get_by_text("群消息", exact=True).first),
     ]
+=======
+    group_tab_selector = 'xpath=//*[@role="tab" and normalize-space()="群消息"]'
+>>>>>>> 5881cd4bcc0ca1264687fe920102727a2c924757
     group_item_selector = 'xpath=//div[contains(@class, "semi-list-item-body") and contains(@class, "semi-list-item-body-flex-start")]'
     scrollable_group_selector = 'xpath=//ul[contains(@class, "semi-list-wrapper")]'
     no_more_selector = 'xpath=//div[contains(@class, "no-more-tip-")]'
@@ -266,6 +270,7 @@ def scroll_and_select_group(page, username, group_targets):
     # 点击群聊标签页
     logger.debug(f"账号 {username} 点击进入群聊标签页")
     try:
+<<<<<<< HEAD
         page.locator("#sub-app, [role='tab'], .semi-tabs-tab").first.wait_for(
             state="attached",
             timeout=config["browserTimeout"],
@@ -291,6 +296,16 @@ def scroll_and_select_group(page, username, group_targets):
         logger.error(f"账号 {username} 未找到群消息入口，无法处理群聊任务: {group_targets}")
         save_page_debug_artifacts(page, username, "missing_group_tab")
         raise last_error
+=======
+        page.get_by_role("tab", name="群消息").click(timeout=config["browserTimeout"])
+    except PlaywrightTimeoutError:
+        logger.debug(f"账号 {username} 未通过 role=tab 找到群消息入口，尝试使用 XPath")
+        try:
+            page.locator(group_tab_selector).first.click(timeout=config["browserTimeout"])
+        except PlaywrightTimeoutError as e:
+            logger.error(f"账号 {username} 未找到群消息入口，无法处理群聊任务: {group_targets}")
+            raise e
+>>>>>>> 5881cd4bcc0ca1264687fe920102727a2c924757
 
     # 等待群聊列表第一项加载（延长超时时间，并接受非可见状态）
     first_group_selector = 'xpath=//li[contains(@class, "semi-list-item")]//div[contains(@class, "semi-list-item-body")]'
@@ -302,7 +317,10 @@ def scroll_and_select_group(page, username, group_targets):
         first_group_locator.click(force=True)
     except PlaywrightTimeoutError:
         logger.error(f"账号 {username} 群聊列表加载超时，无法处理群聊任务: {group_targets}")
+<<<<<<< HEAD
         save_page_debug_artifacts(page, username, "missing_group_list")
+=======
+>>>>>>> 5881cd4bcc0ca1264687fe920102727a2c924757
         raise
 
     time.sleep(config["friendListTimeout"] / 1000)
