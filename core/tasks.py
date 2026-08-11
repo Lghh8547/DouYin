@@ -403,6 +403,8 @@ def send_message_to_chat(page, username, target_name, is_group=False):
 
 
 def do_user_task(browser, username, cookies, targets, group_targets=None):
+        sent_group_targets = []
+
         context = browser.new_context(  # 每个任务使用独立的上下文
             viewport={"width": 1920, "height": 1080},
             locale="zh-CN",
@@ -455,6 +457,14 @@ def do_user_task(browser, username, cookies, targets, group_targets=None):
             for group_name in scroll_and_select_group(page, username, group_targets):
                 logger.debug(f"账号 {username} 已选中群聊 {group_name} 发送消息")
                 send_message_to_chat(page, username, group_name, is_group=True)
+                sent_group_targets.append(group_name)
+
+            missing_group_targets = sorted(set(group_targets) - set(sent_group_targets))
+            if missing_group_targets:
+                raise RuntimeError(
+                    f"账号 {username} 有群聊任务未发送成功: {missing_group_targets}; "
+                    "请检查 TASKS.group_targets 中的群聊名称是否与抖音页面完全一致"
+                )
 
         context.close()  # 任务完成后关闭上下文
 
@@ -468,6 +478,8 @@ def runTasks():
         logger.debug(f"当前配置如下：")
         logger.debug(f"消息模板: {config.get('messageTemplate', '未找到消息模板')}")
         logger.debug(f"一言类型: {config['hitokotoTypes']}")
+        if not userData:
+            raise RuntimeError("未加载到任何有效任务，请检查 TASKS 以及对应的 COOKIES_<unique_id> secrets")
         for user in userData:
             logger.debug(f"用户: {user.get('username', '未知用户')}, 目标好友: {user['targets']}, 目标群聊: {user.get('group_targets', [])}")
 
