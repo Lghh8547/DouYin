@@ -385,9 +385,31 @@ def scroll_and_select_group(page, username, group_targets):
 
 def send_message_to_chat(page, username, target_name, is_group=False):
     """向当前选中的聊天（私聊或群聊）发送续火花消息"""
-    chat_input_selector = "xpath=//div[contains(@class, 'chat-input-')]"
-    page.wait_for_selector(chat_input_selector, timeout=config["browserTimeout"])
-    chat_input = page.locator(chat_input_selector)
+    chat_type = "群聊" if is_group else "好友"
+    chat_input_selectors = [
+        ("chat-input class", "xpath=//div[contains(@class, 'chat-input-')]"),
+        ("textbox role", "xpath=//*[@role='textbox']"),
+        ("contenteditable", "xpath=//*[@contenteditable='true']"),
+        ("textarea", "textarea"),
+    ]
+
+    chat_input = None
+    last_error = None
+    for selector_name, selector in chat_input_selectors:
+        try:
+            locator = page.locator(selector).first
+            locator.wait_for(state="visible", timeout=15000)
+            chat_input = locator
+            logger.debug(f"账号 {username} 已通过 {selector_name} 找到{chat_type} {target_name} 输入框")
+            break
+        except PlaywrightTimeoutError as e:
+            last_error = e
+            logger.debug(f"账号 {username} 未通过 {selector_name} 找到{chat_type} {target_name} 输入框")
+
+    if chat_input is None:
+        logger.error(f"账号 {username} 未找到{chat_type} {target_name} 的聊天输入框，无法发送消息")
+        save_page_debug_artifacts(page, username, f"missing_{'group' if is_group else 'friend'}_chat_input")
+        raise last_error
 
     message = build_message()
     for line in message.split("\\n"):
@@ -395,7 +417,6 @@ def send_message_to_chat(page, username, target_name, is_group=False):
         if line != message.split("\\n")[-1]:
             chat_input.press("Shift+Enter")
 
-    chat_type = "群聊" if is_group else "好友"
     logger.debug(f"账号 {username} 准备发送消息给{chat_type} {target_name}：\n\t{message}")
     chat_input.press("Enter")
     time.sleep(2)
