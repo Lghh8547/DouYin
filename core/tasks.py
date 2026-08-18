@@ -250,10 +250,10 @@ def scroll_and_select_group(page, username, group_targets):
     """尝试滚动并查找群聊名称"""
     # 群聊列表选择器（与私聊在同一消息页面，通过标签切换）
     group_tab_selectors = [
+        ("exact text", lambda: page.get_by_text("群消息", exact=True).first),
         ("role=tab", lambda: page.get_by_role("tab", name="群消息")),
         ("semi-tabs-tab", lambda: page.locator("#sub-app .semi-tabs-tab").filter(has_text="群消息").first),
         ("xpath role tab", lambda: page.locator('xpath=//*[@role="tab" and contains(normalize-space(), "群消息")]').first),
-        ("exact text", lambda: page.get_by_text("群消息", exact=True).first),
     ]
     group_item_selector = 'xpath=//div[contains(@class, "semi-list-item-body") and contains(@class, "semi-list-item-body-flex-start")]'
     scrollable_group_selector = 'xpath=//ul[contains(@class, "semi-list-wrapper")]'
@@ -280,6 +280,7 @@ def scroll_and_select_group(page, username, group_targets):
     for selector_name, get_locator in group_tab_selectors:
         try:
             get_locator().click(timeout=15000)
+            time.sleep(2)  # 给 tab 切换后的列表渲染留更多时间
             logger.debug(f"账号 {username} 已通过 {selector_name} 进入群消息")
             group_tab_clicked = True
             break
@@ -330,7 +331,16 @@ def scroll_and_select_group(page, username, group_targets):
                 logger.debug(f"账号 {username} 找到群聊 {group_name}")
 
                 if group_name in group_targets:
-                    element.click()
+                    element.scroll_into_view_if_needed(timeout=15000)
+                    element.click(timeout=15000, force=True)
+                    try:
+                        page.get_by_text(group_name, exact=True).last.wait_for(
+                            state="visible",
+                            timeout=15000,
+                        )
+                    except PlaywrightTimeoutError:
+                        logger.warning(f"账号 {username} 点击群聊 {group_name} 后未确认聊天标题可见，继续尝试发送")
+                    time.sleep(1)
                     logger.debug(f"账号 {username} 选中目标群聊 {group_name} 准备发送消息")
                     yield group_name
 
@@ -388,6 +398,7 @@ def send_message_to_chat(page, username, target_name, is_group=False):
     chat_type = "群聊" if is_group else "好友"
     chat_input_selectors = [
         ("chat-input class", "xpath=//div[contains(@class, 'chat-input-')]"),
+        ("send placeholder", "xpath=//*[contains(@placeholder, '按回车即发送') or contains(@data-placeholder, '按回车即发送')]"),
         ("textbox role", "xpath=//*[@role='textbox']"),
         ("contenteditable", "xpath=//*[@contenteditable='true']"),
         ("textarea", "textarea"),
@@ -399,6 +410,7 @@ def send_message_to_chat(page, username, target_name, is_group=False):
         try:
             locator = page.locator(selector).first
             locator.wait_for(state="visible", timeout=15000)
+            locator.click(timeout=15000, force=True)
             chat_input = locator
             logger.debug(f"账号 {username} 已通过 {selector_name} 找到{chat_type} {target_name} 输入框")
             break
@@ -412,10 +424,20 @@ def send_message_to_chat(page, username, target_name, is_group=False):
         raise last_error
 
     message = build_message()
-    for line in message.split("\\n"):
-        chat_input.type(line)
-        if line != message.split("\\n")[-1]:
+    lines = message.split("\\n")
+    for i, line in enumerate(lines):
+        # 对 contenteditable div 先 click 聚焦，再用 fill/type 写入
+        chat_input.click(force=True)
+        chat_input.type(line, delay=30)  # delay 模拟真实输入，触发输入事件
+        if i != len(lines) - 1:
             chat_input.press("Shift+Enter")
+
+    # 等待发送按钮可用（最多 5 秒），再按 Enter
+    try:
+        send_btn = page.locator("button.semi-button.chat-semi-button").first
+        send_btn.wait_for(state="enabled", timeout=5000)
+    except Exception:
+        pass  # 找不到按钮或超时，仍尝试 Enter
 
     logger.debug(f"账号 {username} 准备发送消息给{chat_type} {target_name}：\n\t{message}")
     chat_input.press("Enter")
