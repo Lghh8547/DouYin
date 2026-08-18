@@ -7,7 +7,6 @@ jobs:
   run-main:
     timeout-minutes: 20
     runs-on: ubuntu-latest
-    environment: user-data
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
@@ -23,11 +22,6 @@ jobs:
         pip install -r requirements.txt
     - name: Ensure browsers are installed
       run: playwright install chromium --with-deps
-    - name: Export Github Environment Variables and Secrets to JSON
-      env:
-        VARS_JSON: ${{ toJson(vars) }}
-        SECRETS_JSON: ${{ toJson(secrets) }}
-      run: python utils/export_github_env.py
     - name: Run DouYin Spark Flow
       env:
         HEADLESS: "false"
