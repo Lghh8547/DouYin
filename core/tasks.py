@@ -248,13 +248,7 @@ def scroll_and_select_user(page, username, targets):
 
 def scroll_and_select_group(page, username, group_targets):
     """尝试滚动并查找群聊名称"""
-    # 群聊列表选择器（与私聊在同一消息页面，通过标签切换）
-    group_tab_selectors = [
-        ("exact text", lambda: page.get_by_text("群消息", exact=True).first),
-        ("role=tab", lambda: page.get_by_role("tab", name="群消息")),
-        ("semi-tabs-tab", lambda: page.locator("#sub-app .semi-tabs-tab").filter(has_text="群消息").first),
-        ("xpath role tab", lambda: page.locator('xpath=//*[@role="tab" and contains(normalize-space(), "群消息")]').first),
-    ]
+    # 群聊列表选择器
     group_item_selector = 'xpath=//div[contains(@class, "semi-list-item-body") and contains(@class, "semi-list-item-body-flex-start")]'
     scrollable_group_selector = 'xpath=//ul[contains(@class, "semi-list-wrapper")]'
     no_more_selector = 'xpath=//div[contains(@class, "no-more-tip-")]'
@@ -265,8 +259,10 @@ def scroll_and_select_group(page, username, group_targets):
 
     # 点击群聊标签页
     logger.debug(f"账号 {username} 点击进入群聊标签页")
+
+    # 等待消息页 tab 栏出现
     try:
-        page.locator("#sub-app, [role='tab'], .semi-tabs-tab").first.wait_for(
+        page.locator(".semi-tabs-tab, [role='tab']").first.wait_for(
             state="attached",
             timeout=config["browserTimeout"],
         )
@@ -275,23 +271,28 @@ def scroll_and_select_group(page, username, group_targets):
         save_page_debug_artifacts(page, username, "missing_chat_page")
         raise
 
+    # 枚举所有 tab，找到文本包含"群消息"的那个并点击
     group_tab_clicked = False
-    last_error = None
-    for selector_name, get_locator in group_tab_selectors:
+    tab_locators = page.locator(".semi-tabs-tab, [role='tab']").all()
+    logger.debug(f"账号 {username} 找到 {len(tab_locators)} 个 tab")
+    for tab in tab_locators:
         try:
-            get_locator().click(timeout=15000)
-            time.sleep(2)  # 给 tab 切换后的列表渲染留更多时间
-            logger.debug(f"账号 {username} 已通过 {selector_name} 进入群消息")
-            group_tab_clicked = True
-            break
-        except PlaywrightTimeoutError as e:
-            last_error = e
-            logger.debug(f"账号 {username} 未通过 {selector_name} 找到群消息入口，尝试下一个选择器")
+            tab_text = tab.inner_text(timeout=3000).strip()
+            logger.debug(f"账号 {username} tab 文本: {repr(tab_text)}")
+            if "群消息" in tab_text or "群信息" in tab_text:
+                tab.scroll_into_view_if_needed(timeout=5000)
+                tab.click(force=True, timeout=15000)
+                time.sleep(2)
+                logger.debug(f"账号 {username} 已点击群消息 tab: {repr(tab_text)}")
+                group_tab_clicked = True
+                break
+        except Exception as e:
+            logger.debug(f"账号 {username} 读取 tab 文本失败: {e}")
 
     if not group_tab_clicked:
         logger.error(f"账号 {username} 未找到群消息入口，无法处理群聊任务: {group_targets}")
         save_page_debug_artifacts(page, username, "missing_group_tab")
-        raise last_error
+        raise RuntimeError(f"账号 {username} 未找到群消息 tab")
 
     # 等待群聊列表第一项加载（延长超时时间，并接受非可见状态）
     first_group_selector = 'xpath=//li[contains(@class, "semi-list-item")]//div[contains(@class, "semi-list-item-body")]'
